@@ -58,29 +58,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
 
   // Fetch documents from Express backend with Firestore fallback
   const fetchDocuments = async () => {
+    let apiDocs: PdfDocument[] = [];
+    let fsDocs: PdfDocument[] = [];
+
+    // 1. Fetch from Express API
     try {
       const res = await fetch('/api/pdfs');
       if (res.ok) {
         const data = await res.json();
-        if (data.documents && data.documents.length > 0) {
-          setDocuments(data.documents);
-          setLoading(false);
-          return;
+        if (data.documents && Array.isArray(data.documents)) {
+          apiDocs = data.documents;
         }
       }
     } catch (_err) {
       console.warn('Backend API unavailable, using Firestore direct store');
     }
 
-    // Firestore fallback
+    // 2. Fetch from Firestore
     try {
-      const fsDocs = await getFirestorePdfs();
-      setDocuments(fsDocs);
+      fsDocs = await getFirestorePdfs();
     } catch (_e) {
-      console.error('Failed to load PDF directory');
-    } finally {
-      setLoading(false);
+      console.warn('Failed to load Firestore directory');
     }
+
+    // 3. Merge both sources by slug (preferring newest uploadedAt)
+    const mergedMap = new Map<string, PdfDocument>();
+    fsDocs.forEach((d) => {
+      if (d.slug) mergedMap.set(d.slug.toLowerCase(), d);
+    });
+    apiDocs.forEach((d) => {
+      if (d.slug) {
+        const existing = mergedMap.get(d.slug.toLowerCase());
+        if (!existing || new Date(d.uploadedAt) > new Date(existing.uploadedAt)) {
+          mergedMap.set(d.slug.toLowerCase(), d);
+        }
+      }
+    });
+
+    const combined = Array.from(mergedMap.values()).sort(
+      (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+    );
+
+    setDocuments(combined);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -150,7 +170,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
     try {
       const base64Content = await fileToBase64(selectedFile);
       const docId = `doc-${Date.now()}`;
-      const newDoc: PdfDocument = {
+      let createdDoc: PdfDocument = {
         id: docId,
         title: titleInput.trim(),
         slug: cleanSlug,
@@ -182,6 +202,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
         });
         if (apiRes.ok) {
           apiSuccess = true;
+          const apiData = await apiRes.json();
+          if (apiData.document) {
+            createdDoc = apiData.document;
+          }
         } else {
           const errData = await apiRes.json().catch(() => ({}));
           apiErrorMsg = errData.error || errData.message || `Server returned status ${apiRes.status}`;
@@ -192,13 +216,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
 
       // 2. Save to Firestore for permanent cross-instance persistence
       try {
-        fsSuccess = await saveFirestorePdf(newDoc, base64Content);
+        fsSuccess = await saveFirestorePdf(createdDoc, base64Content);
       } catch (fsErr: any) {
         console.warn('Firestore upload note:', fsErr);
       }
 
       if (fsSuccess || apiSuccess) {
-        setUploadSuccess(`PDF published successfully at host.okdems.org/${newDoc.slug}`);
+        // Immediately add to local state
+        setDocuments((prev) => {
+          const filtered = prev.filter((d) => d.slug.toLowerCase() !== cleanSlug.toLowerCase());
+          return [createdDoc, ...filtered];
+        });
+
+        const fullPublicUrl = `${window.location.origin}/${createdDoc.slug}`;
+        setUploadSuccess(`PDF published successfully! Direct link: ${fullPublicUrl}`);
         setSelectedFile(null);
         setTitleInput('');
         setSlugInput('');

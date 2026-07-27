@@ -13,6 +13,25 @@ interface PdfViewerPageProps {
   slug: string;
 }
 
+function dataUriToBlobUrl(dataUri: string): string | null {
+  try {
+    const parts = dataUri.split(',');
+    if (parts.length < 2) return null;
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/pdf';
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    const blob = new Blob([u8arr], { type: mime });
+    return URL.createObjectURL(blob);
+  } catch (_e) {
+    return null;
+  }
+}
+
 export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
   const [doc, setDoc] = useState<PdfDocument | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -27,15 +46,16 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
     setError(null);
     setOverrideRawUrl(null);
 
+    let docData: PdfDocument | null = null;
+    let base64Uri: string | null = null;
+
     // 1. Try Express API
     try {
       const res = await fetch(`/api/pdfs/${encodeURIComponent(slug)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.document) {
-          setDoc(data.document);
-          setLoading(false);
-          return;
+          docData = data.document;
         }
       }
     } catch (_err) {
@@ -46,15 +66,34 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
     try {
       const fsDoc = await getFirestorePdfBySlug(slug);
       if (fsDoc) {
-        setDoc(fsDoc);
+        if (!docData) docData = fsDoc;
         if (fsDoc.pdfBase64) {
-          setOverrideRawUrl(fsDoc.pdfBase64);
+          base64Uri = fsDoc.pdfBase64;
         }
-        setLoading(false);
-        return;
       }
     } catch (_e) {
       console.error('Firestore lookup failed');
+    }
+
+    if (docData) {
+      setDoc(docData);
+
+      // Check if Express raw stream endpoint is available; if not, fallback to Blob URL from base64
+      try {
+        const rawRes = await fetch(`/api/pdfs/raw/${encodeURIComponent(slug)}`, { method: 'HEAD' });
+        if (!rawRes.ok && base64Uri) {
+          const blobUrl = dataUriToBlobUrl(base64Uri);
+          if (blobUrl) setOverrideRawUrl(blobUrl);
+        }
+      } catch (_e) {
+        if (base64Uri) {
+          const blobUrl = dataUriToBlobUrl(base64Uri);
+          if (blobUrl) setOverrideRawUrl(blobUrl);
+        }
+      }
+
+      setLoading(false);
+      return;
     }
 
     setError('Document not found');

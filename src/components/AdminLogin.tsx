@@ -1,6 +1,7 @@
 /**
  * @file src/components/AdminLogin.tsx
  * @description Clean, minimalist Google sign-in page for /admin.
+ * Strictly enforces Google Sign-In with @okdemocrats.org domain accounts.
  */
 
 import React, { useState } from 'react';
@@ -17,7 +18,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [unauthorizedDomain, setUnauthorizedDomain] = useState<boolean>(false);
-  const [emailInput, setEmailInput] = useState<string>('');
 
   const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
 
@@ -27,13 +27,13 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
     setUnauthorizedDomain(false);
 
     try {
-      // Attempt real Firebase Google Auth Popup
+      // Real Firebase Google Auth Popup
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       const email = user.email || '';
 
       if (!isValidOkDemsEmail(email)) {
-        setErrorMessage(`Access Restricted: ${email} is not an authorized @okdemocrats.org account.`);
+        setErrorMessage(`Access Restricted: ${email} is not an authorized @okdemocrats.org account. Please sign in with your official staff Google account.`);
         setLoading(false);
         return;
       }
@@ -63,36 +63,18 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleEmailSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanEmail = emailInput.trim();
-
-    if (!cleanEmail) {
-      setErrorMessage('Please enter your @okdemocrats.org email address.');
-      return;
-    }
-
-    if (!isValidOkDemsEmail(cleanEmail)) {
-      setErrorMessage(`Access Restricted: "${cleanEmail}" is not a valid @okdemocrats.org email address.`);
-      return;
-    }
-
-    onLoginSuccess({
-      email: cleanEmail,
-      name: cleanEmail.split('@')[0].toUpperCase(),
-      isOkDemsVerified: true
-    });
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center items-center p-6 font-sans">
       <div className="text-center max-w-md w-full bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
         {/* Title */}
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
+        <div className="w-12 h-12 bg-blue-50 text-[#0047AB] rounded-xl flex items-center justify-center font-black text-sm mx-auto mb-4 border border-blue-100">
+          OK
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 mb-1">
           OKDEMS PDF Host Admin
         </h1>
         <p className="text-xs text-slate-500 mb-6">
-          Sign in with your official @okdemocrats.org account
+          Authorized @okdemocrats.org Google accounts only
         </p>
 
         {errorMessage && (
@@ -105,7 +87,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
         <button
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full py-3.5 px-6 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-semibold text-sm rounded-xl border border-slate-300 shadow-sm transition-all flex items-center justify-center gap-3 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full py-3.5 px-6 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-semibold text-sm rounded-xl border border-slate-300 shadow-sm transition-all flex items-center justify-center gap-3 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 cursor-pointer"
         >
           {/* Google G Logo SVG */}
           <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
@@ -129,46 +111,23 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
           <span>{loading ? 'Connecting to Google...' : 'Sign in with Google'}</span>
         </button>
 
-        {/* Divider / @okdemocrats.org Direct Email Sign-In */}
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-slate-200" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-white px-2 text-slate-400 font-medium">Or enter staff email</span>
-          </div>
-        </div>
-
-        <form onSubmit={handleEmailSubmit} className="space-y-3">
-          <div>
-            <input
-              type="email"
-              value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
-              placeholder="yourname@okdemocrats.org"
-              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-900 transition-all placeholder:text-slate-400"
-            />
-          </div>
-          <button
-            type="submit"
-            className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 active:bg-black text-white font-semibold text-sm rounded-xl transition-all"
-          >
-            Sign In with Email
-          </button>
-        </form>
-
         {unauthorizedDomain && (
-          <div className="mt-6 p-3 bg-amber-50 border border-amber-200 rounded-xl text-left">
-            <p className="text-xs text-amber-800 font-medium mb-1">How to authorize this domain:</p>
-            <p className="text-[11px] text-amber-700 leading-normal">
-              1. Open Firebase Console &gt; Authentication &gt; Settings.<br />
-              2. Under Authorized domains, add: <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold text-[10px]">{currentHost}</code>
+          <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-left">
+            <p className="text-xs text-amber-800 font-bold mb-1">To enable Google Sign-In on this domain:</p>
+            <p className="text-[11px] text-amber-700 leading-relaxed mb-2">
+              1. Open your Firebase Console &gt; Authentication &gt; Settings.<br />
+              2. Click <strong>Authorized domains</strong> &gt; Add domain.<br />
+              3. Paste this exact hostname:
             </p>
+            <div className="bg-amber-100 p-2 rounded text-center">
+              <code className="font-mono font-bold text-xs text-amber-900 select-all">{currentHost}</code>
+            </div>
           </div>
         )}
       </div>
     </div>
   );
 };
+
 
 
