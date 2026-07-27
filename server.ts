@@ -16,20 +16,30 @@ import { PdfDocument } from './src/types.js';
 const app = express();
 const PORT = 3000;
 
-// Ensure uploads directory exists
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+// Ensure uploads directory exists safely (using /tmp on serverless environments)
+const UPLOADS_DIR = process.env.VERCEL === '1' || process.env.TMPDIR
+  ? path.join('/tmp', 'uploads')
+  : path.join(process.cwd(), 'uploads');
+
 const MANIFEST_PATH = path.join(UPLOADS_DIR, 'manifest.json');
 
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.warn('Notice: Could not create uploads folder (read-only environment):', err);
 }
 
 // Helper to save manifest to disk synchronously
 function saveManifest(docs: PdfDocument[]) {
   try {
+    if (!fs.existsSync(UPLOADS_DIR)) {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
     fs.writeFileSync(MANIFEST_PATH, JSON.stringify(docs, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Failed to write manifest.json:', err);
+    console.warn('Notice: Failed to write manifest.json to disk:', err);
   }
 }
 
@@ -42,46 +52,48 @@ function loadManifest(): PdfDocument[] {
       docs = JSON.parse(content);
     }
   } catch (err) {
-    console.error('Error reading manifest.json:', err);
+    console.warn('Notice: Reading manifest.json skipped:', err);
   }
 
   // Scan uploads directory for any unindexed files on disk
   try {
-    const files = fs.readdirSync(UPLOADS_DIR);
-    const pdfFiles = files.filter((f) => f.endsWith('.pdf') && !f.startsWith('.'));
-    
-    let updated = false;
-    for (const filename of pdfFiles) {
-      const exists = docs.some((d) => d.filename === filename);
-      if (!exists) {
-        // Derive slug and title from filename
-        const parts = filename.split('-');
-        const rawSlug = parts.slice(1).join('-').replace(/\.pdf$/i, '').toLowerCase();
-        const cleanSlug = rawSlug.replace(/[^\w-]/g, '') || `doc-${Date.now()}`;
-        const filePath = path.join(UPLOADS_DIR, filename);
-        const stats = fs.statSync(filePath);
+    if (fs.existsSync(UPLOADS_DIR)) {
+      const files = fs.readdirSync(UPLOADS_DIR);
+      const pdfFiles = files.filter((f) => f.endsWith('.pdf') && !f.startsWith('.'));
+      
+      let updated = false;
+      for (const filename of pdfFiles) {
+        const exists = docs.some((d) => d.filename === filename);
+        if (!exists) {
+          // Derive slug and title from filename
+          const parts = filename.split('-');
+          const rawSlug = parts.slice(1).join('-').replace(/\.pdf$/i, '').toLowerCase();
+          const cleanSlug = rawSlug.replace(/[^\w-]/g, '') || `doc-${Date.now()}`;
+          const filePath = path.join(UPLOADS_DIR, filename);
+          const stats = fs.statSync(filePath);
 
-        docs.push({
-          id: `doc-${parts[0] || Date.now()}`,
-          title: rawSlug.replace(/[-_]/g, ' ').toUpperCase(),
-          slug: cleanSlug,
-          filename,
-          originalName: filename,
-          fileSize: stats.size,
-          uploadedAt: stats.birthtime.toISOString(),
-          uploadedBy: 'admin@okdemocrats.org',
-          views: 0,
-          description: 'Restored from disk'
-        });
-        updated = true;
+          docs.push({
+            id: `doc-${parts[0] || Date.now()}`,
+            title: rawSlug.replace(/[-_]/g, ' ').toUpperCase(),
+            slug: cleanSlug,
+            filename,
+            originalName: filename,
+            fileSize: stats.size,
+            uploadedAt: stats.birthtime.toISOString(),
+            uploadedBy: 'admin@okdemocrats.org',
+            views: 0,
+            description: 'Restored from disk'
+          });
+          updated = true;
+        }
+      }
+
+      if (updated || !fs.existsSync(MANIFEST_PATH)) {
+        saveManifest(docs);
       }
     }
-
-    if (updated || !fs.existsSync(MANIFEST_PATH)) {
-      saveManifest(docs);
-    }
   } catch (err) {
-    console.error('Error scanning uploads folder:', err);
+    console.warn('Notice: Scanning uploads folder skipped:', err);
   }
 
   return docs;
