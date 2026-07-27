@@ -87,6 +87,11 @@ function loadManifest(): PdfDocument[] {
   return docs;
 }
 
+// Helper to normalize slugs for loose matching (e.g. college_vote vs college-vote)
+function normalizeSlug(slug: string): string {
+  return slug.toLowerCase().trim().replace(/_/g, '-').replace(/[^\w-]/g, '');
+}
+
 // In-memory document index initialized from disk
 let pdfDocuments: PdfDocument[] = loadManifest();
 
@@ -134,11 +139,12 @@ app.get('/api/pdfs', (_req: Request, res: Response) => {
  */
 app.get('/api/pdfs/:slug', (req: Request, res: Response) => {
   const { slug } = req.params;
-  let doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+  const targetSlug = normalizeSlug(slug);
+  let doc = pdfDocuments.find((d) => normalizeSlug(d.slug) === targetSlug);
 
   if (!doc) {
     pdfDocuments = loadManifest();
-    doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+    doc = pdfDocuments.find((d) => normalizeSlug(d.slug) === targetSlug);
   }
 
   if (!doc) {
@@ -157,15 +163,16 @@ app.get('/api/pdfs/:slug', (req: Request, res: Response) => {
  */
 const handleRawPdf = (req: Request, res: Response) => {
   const { slug } = req.params;
-  let doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+  const targetSlug = normalizeSlug(slug);
+  let doc = pdfDocuments.find((d) => normalizeSlug(d.slug) === targetSlug);
 
   if (!doc) {
     pdfDocuments = loadManifest();
-    doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+    doc = pdfDocuments.find((d) => normalizeSlug(d.slug) === targetSlug);
   }
 
   if (!doc) {
-    return res.status(404).send('PDF document not found');
+    return res.status(404).type('text/plain').send('PDF document not found');
   }
 
   res.setHeader('Content-Type', 'application/pdf');
@@ -357,6 +364,11 @@ app.post('/api/auth/verify-domain', (req: Request, res: Response) => {
       isOkDemsVerified: true
     }
   });
+});
+
+// Explicit 404 handler for all unmatched API endpoints to prevent Vite SPA fallback
+app.use('/api/*', (_req: Request, res: Response) => {
+  res.status(404).json({ error: 'API endpoint not found' });
 });
 
 // ==========================================

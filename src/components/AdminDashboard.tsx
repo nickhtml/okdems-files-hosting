@@ -30,6 +30,7 @@ import { PdfDocument, UserSession } from '../types';
 import { generateSlug, formatFileSize, getLocalStoragePdfs, saveLocalStoragePdf, deleteLocalStoragePdf } from '../lib/pdfStore';
 import { EmbedModal } from './EmbedModal';
 import { getFirestorePdfs, saveFirestorePdf, deleteFirestorePdf } from '../lib/firestoreStore';
+import { storePdfBinary, deletePdfBinary } from '../lib/pdfStorageHelper';
 
 interface AdminDashboardProps {
   session: UserSession;
@@ -222,6 +223,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
       } catch (_e) {
         // Express backend route might not be available or fail
       }
+
+      // Store raw PDF binary locally in IndexedDB/LocalStorage for instant offline preview
+      await storePdfBinary(cleanSlug, base64Content);
+
+      // Attach base64 URI to createdDoc for local caching
+      createdDoc.pdfBase64 = base64Content;
 
       // 2. Save to Firestore for permanent cross-instance persistence
       try {

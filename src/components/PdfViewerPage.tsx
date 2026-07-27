@@ -9,6 +9,7 @@ import { Download, ExternalLink, Share2, Check, AlertCircle, FileText, Maximize2
 import { PdfDocument } from '../types';
 import { getFirestorePdfBySlug } from '../lib/firestoreStore';
 import { getLocalStoragePdfs } from '../lib/pdfStore';
+import { getPdfBinary, base64ToBlobUrl } from '../lib/pdfStorageHelper';
 
 interface PdfViewerPageProps {
   slug: string;
@@ -80,11 +81,21 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
     if (!docData) {
       try {
         const localDocs = getLocalStoragePdfs();
-        const found = localDocs.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+        const found = localDocs.find((d) => d.slug.toLowerCase() === slug.toLowerCase() || d.slug.toLowerCase().replace(/_/g, '-') === slug.toLowerCase().replace(/_/g, '-'));
         if (found) docData = found;
       } catch (_e) {
         // Ignore
       }
+    }
+
+    // 4. Try client IndexedDB/LocalStorage binary store
+    try {
+      const storedBinary = await getPdfBinary(slug);
+      if (storedBinary) {
+        base64Uri = storedBinary;
+      }
+    } catch (_e) {
+      // Ignore
     }
 
     if (docData) {
@@ -93,20 +104,23 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
       const effectiveBase64 = docData.pdfBase64 || docData.fileDataUri || base64Uri;
 
       if (effectiveBase64) {
-        const blobUrl = dataUriToBlobUrl(effectiveBase64);
+        const blobUrl = base64ToBlobUrl(effectiveBase64);
         if (blobUrl) {
           setOverrideRawUrl(blobUrl);
         }
       } else {
-        // Check if Express raw stream endpoint is available
+        // Fetch raw pdf endpoint or attempt to fetch stream
         try {
-          const rawRes = await fetch(`/api/pdfs/raw/${encodeURIComponent(slug)}`, { method: 'HEAD' });
-          if (!rawRes.ok && effectiveBase64) {
-            const blobUrl = dataUriToBlobUrl(effectiveBase64);
-            if (blobUrl) setOverrideRawUrl(blobUrl);
+          const rawRes = await fetch(`/api/pdfs/raw/${encodeURIComponent(slug)}`);
+          if (rawRes.ok) {
+            const blob = await rawRes.blob();
+            if (blob && blob.size > 0 && blob.type.includes('pdf')) {
+              const blobUrl = URL.createObjectURL(blob);
+              setOverrideRawUrl(blobUrl);
+            }
           }
         } catch (_e) {
-          // Fallback handled by server endpoint
+          // Fallback handled by direct URL
         }
       }
 
@@ -274,21 +288,35 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
             className="w-full flex-1 bg-white rounded-xl overflow-hidden shadow border border-slate-200 flex flex-col transition-all"
             style={{ minHeight: 'calc(100vh - 140px)' }}
           >
-            {/* Main PDF Embed iFrame */}
-            <iframe
-              src={`${rawPdfUrl}#view=FitH&zoom=${zoomLevel}`}
+            {/* Main PDF Object Embed with iFrame Fallback */}
+            <object
+              data={rawPdfUrl.startsWith('blob:') ? rawPdfUrl : `${rawPdfUrl}#view=FitH&zoom=${zoomLevel}`}
+              type="application/pdf"
               className="w-full flex-1 border-0 rounded-xl"
-              title={doc.title}
               style={{ width: '100%', height: '100%', minHeight: 'calc(100vh - 150px)' }}
             >
-              <p className="text-center p-8 text-slate-600">
-                Your browser does not support inline PDF viewing. You can{' '}
-                <a href={rawPdfUrl} className="text-[#0047AB] underline font-bold">
-                  download the document here
-                </a>
-                .
-              </p>
-            </iframe>
+              <iframe
+                src={rawPdfUrl.startsWith('blob:') ? rawPdfUrl : `${rawPdfUrl}#view=FitH&zoom=${zoomLevel}`}
+                className="w-full flex-1 border-0 rounded-xl"
+                title={doc.title}
+                style={{ width: '100%', height: '100%', minHeight: 'calc(100vh - 150px)' }}
+              >
+                <div className="text-center p-8 text-slate-600 flex flex-col items-center justify-center h-full">
+                  <FileText className="h-12 w-12 text-[#0047AB] mb-3 opacity-60" />
+                  <p className="font-bold text-slate-800 text-sm mb-1">Inline PDF Preview</p>
+                  <p className="text-xs text-slate-500 mb-4">
+                    Your device or browser doesn't support direct inline rendering.
+                  </p>
+                  <a
+                    href={rawPdfUrl}
+                    download={doc.originalName}
+                    className="px-4 py-2 bg-[#0047AB] text-white rounded-lg text-xs font-bold shadow hover:bg-blue-800 transition-colors"
+                  >
+                    Download PDF File
+                  </a>
+                </div>
+              </iframe>
+            </object>
           </div>
         </main>
       </div>
