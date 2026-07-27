@@ -163,35 +163,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
         description: descriptionInput.trim() || undefined
       };
 
-      // 1. Save to Firestore for permanent persistence
-      await saveFirestorePdf(newDoc, base64Content);
+      let fsSuccess = false;
+      let apiSuccess = false;
+      let apiErrorMsg = '';
 
-      // 2. Try posting to Express backend API if available
+      // 1. Try Express API upload
       try {
         const formData = new FormData();
         formData.append('pdf', selectedFile);
         formData.append('title', titleInput.trim());
         formData.append('slug', cleanSlug);
         formData.append('description', descriptionInput.trim());
-        formData.append('uploaderEmail', session.email);
+        formData.append('uploaderEmail', session.email || 'digitools@okdemocrats.org');
 
-        await fetch('/api/pdfs/upload', {
+        const apiRes = await fetch('/api/pdfs/upload', {
           method: 'POST',
           body: formData
         });
+        if (apiRes.ok) {
+          apiSuccess = true;
+        } else {
+          const errData = await apiRes.json().catch(() => ({}));
+          apiErrorMsg = errData.error || errData.message || `Server returned status ${apiRes.status}`;
+        }
       } catch (_e) {
-        // Express backend route optional on pure static host
+        // Express backend route might not be available or fail
       }
 
-      setUploadSuccess(`PDF published successfully at host.okdems.org/${newDoc.slug}`);
-      setSelectedFile(null);
-      setTitleInput('');
-      setSlugInput('');
-      setDescriptionInput('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      fetchDocuments();
-    } catch (_err) {
-      setUploadError('Error uploading PDF document.');
+      // 2. Save to Firestore for permanent cross-instance persistence
+      try {
+        fsSuccess = await saveFirestorePdf(newDoc, base64Content);
+      } catch (fsErr: any) {
+        console.warn('Firestore upload note:', fsErr);
+      }
+
+      if (fsSuccess || apiSuccess) {
+        setUploadSuccess(`PDF published successfully at host.okdems.org/${newDoc.slug}`);
+        setSelectedFile(null);
+        setTitleInput('');
+        setSlugInput('');
+        setDescriptionInput('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        fetchDocuments();
+      } else {
+        setUploadError(apiErrorMsg || 'Error uploading PDF document. Please try again.');
+      }
+    } catch (err: any) {
+      setUploadError(err?.message || 'Error processing PDF document upload.');
     } finally {
       setUploading(false);
     }

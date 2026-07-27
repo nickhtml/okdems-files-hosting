@@ -77,12 +77,25 @@ export async function saveFirestorePdf(pdfDoc: PdfDocument, base64Data?: string)
   try {
     const docRef = doc(db, COLLECTION_NAME, pdfDoc.id);
     const payload: FirestorePdfDoc = { ...pdfDoc };
-    if (base64Data) {
+    
+    // Only embed base64 directly in Firestore doc if under 850KB to respect 1MB doc size limit
+    if (base64Data && base64Data.length < 850000) {
       payload.pdfBase64 = base64Data;
     }
     await setDoc(docRef, payload, { merge: true });
     return true;
   } catch (err) {
+    // If it failed with base64, try saving metadata only
+    if (base64Data) {
+      try {
+        const docRef = doc(db, COLLECTION_NAME, pdfDoc.id);
+        const { pdfBase64, ...metaOnly } = { ...pdfDoc } as FirestorePdfDoc;
+        await setDoc(docRef, metaOnly, { merge: true });
+        return true;
+      } catch (_subErr) {
+        // Fallthrough
+      }
+    }
     handleFirestoreError(err, OperationType.WRITE, `pdfs/${pdfDoc.id}`);
     return false;
   }

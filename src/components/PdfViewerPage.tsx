@@ -68,6 +68,16 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
     }
   }, [slug]);
 
+  useEffect(() => {
+    if (doc) {
+      document.title = `${doc.title} | OKDEMS File Hosting`;
+    } else if (error) {
+      document.title = `Document Not Found | OKDEMS File Hosting`;
+    } else {
+      document.title = `Loading Document... | OKDEMS File Hosting`;
+    }
+  }, [doc, error]);
+
   const rawPdfUrl = overrideRawUrl || `/api/pdfs/raw/${encodeURIComponent(slug)}`;
   const fullPublicUrl = `${window.location.origin}/${slug}`;
 

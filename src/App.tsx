@@ -30,6 +30,18 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  useEffect(() => {
+    if (pathname === '/' || pathname === '') {
+      document.title = 'OKDEMS File Hosting';
+    } else if (pathname === '/admin' || pathname === '/admin/') {
+      if (session && session.isOkDemsVerified) {
+        document.title = 'Admin Dashboard | OKDEMS File Hosting';
+      } else {
+        document.title = 'Admin Login | OKDEMS File Hosting';
+      }
+    }
+  }, [pathname, session]);
+
   const handleLoginSuccess = (newSession: UserSession) => {
     setSession(newSession);
     try {

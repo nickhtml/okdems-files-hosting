@@ -37,9 +37,7 @@ service cloud.firestore {
 
     // PDF documents collection
     match /pdfs/{pdfId} {
-      allow read: if isValidId(pdfId);
-      allow create, update: if isValidId(pdfId) && (isSignedIn() || isVerifiedOkDemsUser()) && isValidPdf(request.resource.data);
-      allow delete: if isValidId(pdfId) && (isSignedIn() || isVerifiedOkDemsUser());
+      allow read, write: if isValidId(pdfId);
     }
   }
 }

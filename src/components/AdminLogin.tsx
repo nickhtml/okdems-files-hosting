@@ -39,33 +39,16 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess }) => {
         isOkDemsVerified: true
       });
     } catch (firebaseErr: any) {
-      console.warn('Firebase popup sign-in note/fallback:', firebaseErr?.message);
-      
-      // Fallback domain verification check
-      const fallbackEmail = 'digitools@okdemocrats.org';
-      try {
-        const res = await fetch('/api/auth/verify-domain', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: fallbackEmail })
-        });
-        const data = await res.json();
-
-        if (res.ok && data.success) {
-          onLoginSuccess({
-            email: fallbackEmail,
-            name: 'DIGITOOLS',
-            isOkDemsVerified: true
-          });
-        } else {
-          setErrorMessage(data.message || 'Authentication failed');
-        }
-      } catch (_err) {
-        onLoginSuccess({
-          email: fallbackEmail,
-          name: 'DIGITOOLS',
-          isOkDemsVerified: true
-        });
+      console.warn('Google Sign-In error:', firebaseErr);
+      const code = firebaseErr?.code;
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setErrorMessage(null);
+      } else if (code === 'auth/popup-blocked') {
+        setErrorMessage('Popup blocked by browser. Please allow popups for Google Sign-In.');
+      } else if (firebaseErr?.message) {
+        setErrorMessage(`Sign-in error: ${firebaseErr.message}`);
+      } else {
+        setErrorMessage('Failed to sign in with Google. Please try again.');
       }
     } finally {
       setLoading(false);
