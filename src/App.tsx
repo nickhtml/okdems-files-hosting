@@ -16,7 +16,14 @@ export default function App() {
   const [session, setSession] = useState<UserSession | null>(() => {
     try {
       const saved = localStorage.getItem('okdems_admin_session');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      // Ensure session has a valid okdemocrats.org email and is not a default placeholder
+      if (parsed && parsed.email && parsed.email.toLowerCase().endsWith('@okdemocrats.org') && parsed.isOkDemsVerified) {
+        return parsed;
+      }
+      localStorage.removeItem('okdems_admin_session');
+      return null;
     } catch (_e) {
       return null;
     }

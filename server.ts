@@ -141,7 +141,7 @@ app.post('/api/pdfs/upload', upload.single('pdf'), (req: Request, res: Response)
       originalName: file.originalname,
       fileSize: file.size,
       uploadedAt: new Date().toISOString(),
-      uploadedBy: uploaderEmail || 'digitools@okdemocrats.org',
+      uploadedBy: uploaderEmail || 'admin@okdemocrats.org',
       views: 0,
       description: description ? description.trim() : undefined
     };

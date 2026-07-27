@@ -158,7 +158,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
         originalName: selectedFile.name,
         fileSize: selectedFile.size,
         uploadedAt: new Date().toISOString(),
-        uploadedBy: session.email || 'digitools@okdemocrats.org',
+        uploadedBy: session.email || 'admin@okdemocrats.org',
         views: 0,
         description: descriptionInput.trim() || undefined
       };
@@ -174,7 +174,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
         formData.append('title', titleInput.trim());
         formData.append('slug', cleanSlug);
         formData.append('description', descriptionInput.trim());
-        formData.append('uploaderEmail', session.email || 'digitools@okdemocrats.org');
+        formData.append('uploaderEmail', session.email || 'admin@okdemocrats.org');
 
         const apiRes = await fetch('/api/pdfs/upload', {
           method: 'POST',
