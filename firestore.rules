@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedOkDemsUser() {
+      return isSignedIn() && 
+        request.auth.token.email != null && 
+        request.auth.token.email.endsWith('@okdemocrats.org');
+    }
+
+    function isValidPdf(data) {
+      return data.keys().hasAll(['id', 'title', 'slug', 'filename', 'originalName', 'fileSize', 'uploadedAt', 'uploadedBy', 'views']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.title is string && data.title.size() <= 200 &&
+        data.slug is string && data.slug.size() <= 100 &&
+        data.filename is string && data.filename.size() <= 255 &&
+        data.originalName is string && data.originalName.size() <= 255 &&
+        data.fileSize is number &&
+        data.uploadedAt is string &&
+        data.uploadedBy is string && data.uploadedBy.size() <= 128 &&
+        data.views is number;
+    }
+
+    // PDF documents collection
+    match /pdfs/{pdfId} {
+      allow read: if isValidId(pdfId);
+      allow create, update: if isValidId(pdfId) && (isSignedIn() || isVerifiedOkDemsUser()) && isValidPdf(request.resource.data);
+      allow delete: if isValidId(pdfId) && (isSignedIn() || isVerifiedOkDemsUser());
+    }
+  }
+}

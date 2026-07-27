@@ -1,0 +1,68 @@
+{
+  "entities": {
+    "PdfDocument": {
+      "title": "PdfDocument",
+      "description": "Hosted PDF Document metadata and content stored by OKDEMS team members",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Document unique identifier"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Human-readable document title"
+        },
+        "slug": {
+          "type": "string",
+          "maxLength": 100,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "URL slug for document link"
+        },
+        "filename": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Internal storage filename"
+        },
+        "originalName": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Original uploaded filename"
+        },
+        "fileSize": {
+          "type": "number",
+          "description": "File size in bytes"
+        },
+        "uploadedAt": {
+          "type": "string",
+          "description": "ISO timestamp of upload"
+        },
+        "uploadedBy": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "User email who uploaded the file"
+        },
+        "views": {
+          "type": "number",
+          "description": "Total view count"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional notes or summary"
+        }
+      },
+      "required": ["id", "title", "slug", "filename", "originalName", "fileSize", "uploadedAt", "uploadedBy", "views"]
+    }
+  },
+  "firestore": {
+    "/pdfs/{pdfId}": {
+      "schema": {
+        "$ref": "#/entities/PdfDocument"
+      },
+      "description": "Directory of hosted PDF documents"
+    }
+  }
+}

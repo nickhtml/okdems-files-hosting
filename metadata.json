@@ -1,0 +1,6 @@
+{
+  "name": "OKDEMS PDF Host",
+  "description": "Internal PDF document hosting and embedded viewer platform for OKDEMS Digital Team.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
