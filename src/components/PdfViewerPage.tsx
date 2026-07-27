@@ -90,17 +90,23 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
     if (docData) {
       setDoc(docData);
 
-      // Check if Express raw stream endpoint is available; if not, fallback to Blob URL from base64
-      try {
-        const rawRes = await fetch(`/api/pdfs/raw/${encodeURIComponent(slug)}`, { method: 'HEAD' });
-        if (!rawRes.ok && base64Uri) {
-          const blobUrl = dataUriToBlobUrl(base64Uri);
-          if (blobUrl) setOverrideRawUrl(blobUrl);
+      const effectiveBase64 = docData.pdfBase64 || docData.fileDataUri || base64Uri;
+
+      if (effectiveBase64) {
+        const blobUrl = dataUriToBlobUrl(effectiveBase64);
+        if (blobUrl) {
+          setOverrideRawUrl(blobUrl);
         }
-      } catch (_e) {
-        if (base64Uri) {
-          const blobUrl = dataUriToBlobUrl(base64Uri);
-          if (blobUrl) setOverrideRawUrl(blobUrl);
+      } else {
+        // Check if Express raw stream endpoint is available
+        try {
+          const rawRes = await fetch(`/api/pdfs/raw/${encodeURIComponent(slug)}`, { method: 'HEAD' });
+          if (!rawRes.ok && effectiveBase64) {
+            const blobUrl = dataUriToBlobUrl(effectiveBase64);
+            if (blobUrl) setOverrideRawUrl(blobUrl);
+          }
+        } catch (_e) {
+          // Fallback handled by server endpoint
         }
       }
 

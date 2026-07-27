@@ -16,6 +16,7 @@ export interface PdfDocument {
   views: number;
   description?: string;
   fileDataUri?: string; // Optional embedded data URL for initial sample storage
+  pdfBase64?: string; // Embedded base64 data URL (e.g. data:application/pdf;base64,...)
 }
 
 export interface UserSession {

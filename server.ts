@@ -155,7 +155,7 @@ app.get('/api/pdfs/:slug', (req: Request, res: Response) => {
  * GET /api/pdfs/raw/:slug
  * Serves the raw PDF binary stream with Content-Type: application/pdf for browser embedding.
  */
-app.get('/api/pdfs/raw/:slug', (req: Request, res: Response) => {
+const handleRawPdf = (req: Request, res: Response) => {
   const { slug } = req.params;
   let doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
 
@@ -168,20 +168,43 @@ app.get('/api/pdfs/raw/:slug', (req: Request, res: Response) => {
     return res.status(404).send('PDF document not found');
   }
 
-  const filePath = path.join(UPLOADS_DIR, doc.filename);
-
-  if (!fs.existsSync(filePath)) {
-    // If local file missing, fallback to sample base64 buffer
-    const fallbackBuffer = Buffer.from(SAMPLE_OKDEMS_PDF_BASE64, 'base64');
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${doc.originalName}"`);
-    return res.send(fallbackBuffer);
-  }
-
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${doc.originalName}"`);
-  res.sendFile(filePath);
-});
+
+  const filePath = path.join(UPLOADS_DIR, doc.filename);
+
+  if (fs.existsSync(filePath)) {
+    if (req.method === 'HEAD') {
+      const stats = fs.statSync(filePath);
+      res.setHeader('Content-Length', stats.size);
+      return res.status(200).end();
+    }
+    return res.sendFile(filePath);
+  }
+
+  // Fallback to embedded base64 in doc if available
+  const base64Data = doc.pdfBase64 || doc.fileDataUri;
+  if (base64Data) {
+    const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+    const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+    res.setHeader('Content-Length', pdfBuffer.length);
+    if (req.method === 'HEAD') {
+      return res.status(200).end();
+    }
+    return res.send(pdfBuffer);
+  }
+
+  // Final fallback to sample OKDEMS PDF buffer
+  const fallbackBuffer = Buffer.from(SAMPLE_OKDEMS_PDF_BASE64, 'base64');
+  res.setHeader('Content-Length', fallbackBuffer.length);
+  if (req.method === 'HEAD') {
+    return res.status(200).end();
+  }
+  return res.send(fallbackBuffer);
+};
+
+app.get('/api/pdfs/raw/:slug', handleRawPdf);
+app.head('/api/pdfs/raw/:slug', handleRawPdf);
 
 /**
  * POST /api/pdfs/upload
@@ -205,6 +228,15 @@ app.post('/api/pdfs/upload', upload.single('pdf'), (req: Request, res: Response)
       return res.status(403).json({ error: 'Unauthorized: Uploading requires an @okdemocrats.org email.' });
     }
 
+    // Read file buffer and create base64 URI
+    let pdfBase64 = '';
+    try {
+      const fileBuffer = fs.readFileSync(file.path);
+      pdfBase64 = `data:application/pdf;base64,${fileBuffer.toString('base64')}`;
+    } catch (_err) {
+      console.warn('Could not generate base64 URI from file');
+    }
+
     // Check slug collision
     const sanitizedSlug = slug.trim().toLowerCase().replace(/[^\w-]/g, '');
     const existingIndex = pdfDocuments.findIndex((d) => d.slug.toLowerCase() === sanitizedSlug);
@@ -219,7 +251,9 @@ app.post('/api/pdfs/upload', upload.single('pdf'), (req: Request, res: Response)
       uploadedAt: new Date().toISOString(),
       uploadedBy: uploaderEmail || 'admin@okdemocrats.org',
       views: 0,
-      description: description ? description.trim() : undefined
+      description: description ? description.trim() : undefined,
+      pdfBase64: pdfBase64 || undefined,
+      fileDataUri: pdfBase64 || undefined
     };
 
     if (existingIndex >= 0) {
