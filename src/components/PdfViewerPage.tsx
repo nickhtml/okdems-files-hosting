@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { Download, ExternalLink, Share2, Check, AlertCircle, FileText, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw } from 'lucide-react';
 import { PdfDocument } from '../types';
+import { getFirestorePdfBySlug } from '../lib/firestoreStore';
 
 interface PdfViewerPageProps {
   slug: string;
@@ -19,32 +20,46 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
   const [copied, setCopied] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
+  const [overrideRawUrl, setOverrideRawUrl] = useState<string | null>(null);
 
   const fetchDocument = async () => {
     setLoading(true);
     setError(null);
+    setOverrideRawUrl(null);
+
+    // 1. Try Express API
     try {
       const res = await fetch(`/api/pdfs/${encodeURIComponent(slug)}`);
-      if (!res.ok) {
-        if (res.status === 404) {
-          setError('Document not found');
-        } else {
-          setError('Failed to load document');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.document) {
+          setDoc(data.document);
+          setLoading(false);
+          return;
         }
-        setDoc(null);
-        return;
-      }
-      const data = await res.json();
-      if (data.success && data.document) {
-        setDoc(data.document);
-      } else {
-        setError('Document unavailable');
       }
     } catch (_err) {
-      setError('Network error loading document');
-    } finally {
-      setLoading(false);
+      console.warn('API call failed, falling back to Firestore');
     }
+
+    // 2. Try Firestore Direct lookup
+    try {
+      const fsDoc = await getFirestorePdfBySlug(slug);
+      if (fsDoc) {
+        setDoc(fsDoc);
+        if (fsDoc.pdfBase64) {
+          setOverrideRawUrl(fsDoc.pdfBase64);
+        }
+        setLoading(false);
+        return;
+      }
+    } catch (_e) {
+      console.error('Firestore lookup failed');
+    }
+
+    setError('Document not found');
+    setDoc(null);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -53,7 +68,7 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
     }
   }, [slug]);
 
-  const rawPdfUrl = `/api/pdfs/raw/${encodeURIComponent(slug)}`;
+  const rawPdfUrl = overrideRawUrl || `/api/pdfs/raw/${encodeURIComponent(slug)}`;
   const fullPublicUrl = `${window.location.origin}/${slug}`;
 
   const handleCopyLink = () => {

@@ -29,6 +29,7 @@ import {
 import { PdfDocument, UserSession } from '../types';
 import { generateSlug, formatFileSize } from '../lib/pdfStore';
 import { EmbedModal } from './EmbedModal';
+import { getFirestorePdfs, saveFirestorePdf, deleteFirestorePdf } from '../lib/firestoreStore';
 
 interface AdminDashboardProps {
   session: UserSession;
@@ -55,17 +56,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch all documents from Express backend
+  // Fetch documents from Express backend with Firestore fallback
   const fetchDocuments = async () => {
     try {
       const res = await fetch('/api/pdfs');
       if (res.ok) {
         const data = await res.json();
-        if (data.documents) {
+        if (data.documents && data.documents.length > 0) {
           setDocuments(data.documents);
+          setLoading(false);
+          return;
         }
       }
     } catch (_err) {
+      console.warn('Backend API unavailable, using Firestore direct store');
+    }
+
+    // Firestore fallback
+    try {
+      const fsDocs = await getFirestorePdfs();
+      setDocuments(fsDocs);
+    } catch (_e) {
       console.error('Failed to load PDF directory');
     } finally {
       setLoading(false);
@@ -102,6 +113,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
     }
   };
 
+  // Helper to convert File to Base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
   // Handle Form Submit
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,33 +148,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
     setUploading(true);
 
     try {
-      const formData = new FormData();
-      formData.append('pdf', selectedFile);
-      formData.append('title', titleInput.trim());
-      formData.append('slug', cleanSlug);
-      formData.append('description', descriptionInput.trim());
-      formData.append('uploaderEmail', session.email);
+      const base64Content = await fileToBase64(selectedFile);
+      const docId = `doc-${Date.now()}`;
+      const newDoc: PdfDocument = {
+        id: docId,
+        title: titleInput.trim(),
+        slug: cleanSlug,
+        filename: `${docId}-${selectedFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`,
+        originalName: selectedFile.name,
+        fileSize: selectedFile.size,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: session.email || 'digitools@okdemocrats.org',
+        views: 0,
+        description: descriptionInput.trim() || undefined
+      };
 
-      const res = await fetch('/api/pdfs/upload', {
-        method: 'POST',
-        body: formData
-      });
+      // 1. Save to Firestore for permanent persistence
+      await saveFirestorePdf(newDoc, base64Content);
 
-      const data = await res.json();
+      // 2. Try posting to Express backend API if available
+      try {
+        const formData = new FormData();
+        formData.append('pdf', selectedFile);
+        formData.append('title', titleInput.trim());
+        formData.append('slug', cleanSlug);
+        formData.append('description', descriptionInput.trim());
+        formData.append('uploaderEmail', session.email);
 
-      if (res.ok && data.success) {
-        setUploadSuccess(`PDF published successfully at host.okdems.org/${data.document.slug}`);
-        setSelectedFile(null);
-        setTitleInput('');
-        setSlugInput('');
-        setDescriptionInput('');
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        fetchDocuments();
-      } else {
-        setUploadError(data.error || 'Upload failed');
+        await fetch('/api/pdfs/upload', {
+          method: 'POST',
+          body: formData
+        });
+      } catch (_e) {
+        // Express backend route optional on pure static host
       }
+
+      setUploadSuccess(`PDF published successfully at host.okdems.org/${newDoc.slug}`);
+      setSelectedFile(null);
+      setTitleInput('');
+      setSlugInput('');
+      setDescriptionInput('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      fetchDocuments();
     } catch (_err) {
-      setUploadError('Network error uploading PDF document.');
+      setUploadError('Error uploading PDF document.');
     } finally {
       setUploading(false);
     }
@@ -167,10 +205,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
 
     setDeletingId(id);
     try {
-      const res = await fetch(`/api/pdfs/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setDocuments((prev) => prev.filter((d) => d.id !== id));
+      await deleteFirestorePdf(id);
+      try {
+        await fetch(`/api/pdfs/${id}`, { method: 'DELETE' });
+      } catch (_e) {
+        // Ignore API error
       }
+      setDocuments((prev) => prev.filter((d) => d.id !== id));
     } catch (_err) {
       alert('Failed to delete document');
     } finally {

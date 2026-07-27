@@ -252,9 +252,16 @@ async function start() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`OKDEMS PDF Host Server listening on http://0.0.0.0:${PORT}`);
-  });
+  if (process.env.VERCEL !== '1') {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`OKDEMS PDF Host Server listening on http://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
-start();
+if (process.env.VERCEL !== '1') {
+  start();
+}
+
+export default app;
+
