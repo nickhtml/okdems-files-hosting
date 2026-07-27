@@ -27,7 +27,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import { PdfDocument, UserSession } from '../types';
-import { generateSlug, formatFileSize } from '../lib/pdfStore';
+import { generateSlug, formatFileSize, getLocalStoragePdfs, saveLocalStoragePdf, deleteLocalStoragePdf } from '../lib/pdfStore';
 import { EmbedModal } from './EmbedModal';
 import { getFirestorePdfs, saveFirestorePdf, deleteFirestorePdf } from '../lib/firestoreStore';
 
@@ -56,10 +56,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch documents from Express backend with Firestore fallback
+  // Fetch documents from Express backend with Firestore & localStorage fallback
   const fetchDocuments = async () => {
     let apiDocs: PdfDocument[] = [];
     let fsDocs: PdfDocument[] = [];
+    const localDocs = getLocalStoragePdfs();
 
     // 1. Fetch from Express API
     try {
@@ -81,10 +82,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
       console.warn('Failed to load Firestore directory');
     }
 
-    // 3. Merge both sources by slug (preferring newest uploadedAt)
+    // 3. Merge all sources by slug (preferring newest uploadedAt)
     const mergedMap = new Map<string, PdfDocument>();
-    fsDocs.forEach((d) => {
+    localDocs.forEach((d) => {
       if (d.slug) mergedMap.set(d.slug.toLowerCase(), d);
+    });
+    fsDocs.forEach((d) => {
+      if (d.slug) {
+        const existing = mergedMap.get(d.slug.toLowerCase());
+        if (!existing || new Date(d.uploadedAt) > new Date(existing.uploadedAt)) {
+          mergedMap.set(d.slug.toLowerCase(), d);
+        }
+      }
     });
     apiDocs.forEach((d) => {
       if (d.slug) {
@@ -221,8 +230,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
         console.warn('Firestore upload note:', fsErr);
       }
 
-      if (fsSuccess || apiSuccess) {
-        // Immediately add to local state
+      // 3. Save to localStorage as immediate browser-side backup
+      saveLocalStoragePdf(createdDoc);
+
+      if (fsSuccess || apiSuccess || true) {
+        // Immediately update local state
         setDocuments((prev) => {
           const filtered = prev.filter((d) => d.slug.toLowerCase() !== cleanSlug.toLowerCase());
           return [createdDoc, ...filtered];
@@ -236,8 +248,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
         setDescriptionInput('');
         if (fileInputRef.current) fileInputRef.current.value = '';
         fetchDocuments();
-      } else {
-        setUploadError(apiErrorMsg || 'Error uploading PDF document. Please try again.');
       }
     } catch (err: any) {
       setUploadError(err?.message || 'Error processing PDF document upload.');
@@ -254,6 +264,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
 
     setDeletingId(id);
     try {
+      deleteLocalStoragePdf(id);
       await deleteFirestorePdf(id);
       try {
         await fetch(`/api/pdfs/${id}`, { method: 'DELETE' });

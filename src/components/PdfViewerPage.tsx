@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { Download, ExternalLink, Share2, Check, AlertCircle, FileText, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw } from 'lucide-react';
 import { PdfDocument } from '../types';
 import { getFirestorePdfBySlug } from '../lib/firestoreStore';
+import { getLocalStoragePdfs } from '../lib/pdfStore';
 
 interface PdfViewerPageProps {
   slug: string;
@@ -73,6 +74,17 @@ export const PdfViewerPage: React.FC<PdfViewerPageProps> = ({ slug }) => {
       }
     } catch (_e) {
       console.error('Firestore lookup failed');
+    }
+
+    // 3. Try LocalStorage backup
+    if (!docData) {
+      try {
+        const localDocs = getLocalStoragePdfs();
+        const found = localDocs.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+        if (found) docData = found;
+      } catch (_e) {
+        // Ignore
+      }
     }
 
     if (docData) {

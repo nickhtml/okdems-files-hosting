@@ -54,3 +54,44 @@ export function isValidOkDemsEmail(email: string): boolean {
   const normalized = email.trim().toLowerCase();
   return normalized.endsWith('@okdemocrats.org');
 }
+
+const LOCAL_STORAGE_KEY = 'okdems_pdf_documents_v2';
+
+/**
+ * Retrieves local cached PDF document metadata from localStorage.
+ */
+export function getLocalStoragePdfs(): PdfDocument[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+/**
+ * Saves or updates a PDF document in localStorage.
+ */
+export function saveLocalStoragePdf(pdfDoc: PdfDocument): void {
+  try {
+    const existing = getLocalStoragePdfs();
+    const filtered = existing.filter((d) => d.id !== pdfDoc.id && d.slug.toLowerCase() !== pdfDoc.slug.toLowerCase());
+    const updated = [pdfDoc, ...filtered];
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+  } catch (_e) {
+    // Ignore localStorage quota errors
+  }
+}
+
+/**
+ * Removes a PDF document from localStorage.
+ */
+export function deleteLocalStoragePdf(id: string): void {
+  try {
+    const existing = getLocalStoragePdfs();
+    const updated = existing.filter((d) => d.id !== id);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+  } catch (_e) {
+    // Ignore
+  }
+}

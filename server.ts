@@ -18,12 +18,77 @@ const PORT = 3000;
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+const MANIFEST_PATH = path.join(UPLOADS_DIR, 'manifest.json');
+
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-// In-memory document index initialized empty
-let pdfDocuments: PdfDocument[] = [];
+// Helper to save manifest to disk synchronously
+function saveManifest(docs: PdfDocument[]) {
+  try {
+    fs.writeFileSync(MANIFEST_PATH, JSON.stringify(docs, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to write manifest.json:', err);
+  }
+}
+
+// Helper to load manifest from disk or reconstruct from files in uploads/
+function loadManifest(): PdfDocument[] {
+  let docs: PdfDocument[] = [];
+  try {
+    if (fs.existsSync(MANIFEST_PATH)) {
+      const content = fs.readFileSync(MANIFEST_PATH, 'utf-8');
+      docs = JSON.parse(content);
+    }
+  } catch (err) {
+    console.error('Error reading manifest.json:', err);
+  }
+
+  // Scan uploads directory for any unindexed files on disk
+  try {
+    const files = fs.readdirSync(UPLOADS_DIR);
+    const pdfFiles = files.filter((f) => f.endsWith('.pdf') && !f.startsWith('.'));
+    
+    let updated = false;
+    for (const filename of pdfFiles) {
+      const exists = docs.some((d) => d.filename === filename);
+      if (!exists) {
+        // Derive slug and title from filename
+        const parts = filename.split('-');
+        const rawSlug = parts.slice(1).join('-').replace(/\.pdf$/i, '').toLowerCase();
+        const cleanSlug = rawSlug.replace(/[^\w-]/g, '') || `doc-${Date.now()}`;
+        const filePath = path.join(UPLOADS_DIR, filename);
+        const stats = fs.statSync(filePath);
+
+        docs.push({
+          id: `doc-${parts[0] || Date.now()}`,
+          title: rawSlug.replace(/[-_]/g, ' ').toUpperCase(),
+          slug: cleanSlug,
+          filename,
+          originalName: filename,
+          fileSize: stats.size,
+          uploadedAt: stats.birthtime.toISOString(),
+          uploadedBy: 'admin@okdemocrats.org',
+          views: 0,
+          description: 'Restored from disk'
+        });
+        updated = true;
+      }
+    }
+
+    if (updated || !fs.existsSync(MANIFEST_PATH)) {
+      saveManifest(docs);
+    }
+  } catch (err) {
+    console.error('Error scanning uploads folder:', err);
+  }
+
+  return docs;
+}
+
+// In-memory document index initialized from disk
+let pdfDocuments: PdfDocument[] = loadManifest();
 
 // Configure multer storage for uploaded PDF files
 const storage = multer.diskStorage({
@@ -69,7 +134,12 @@ app.get('/api/pdfs', (_req: Request, res: Response) => {
  */
 app.get('/api/pdfs/:slug', (req: Request, res: Response) => {
   const { slug } = req.params;
-  const doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+  let doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+
+  if (!doc) {
+    pdfDocuments = loadManifest();
+    doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+  }
 
   if (!doc) {
     return res.status(404).json({ error: 'Document not found' });
@@ -77,6 +147,7 @@ app.get('/api/pdfs/:slug', (req: Request, res: Response) => {
 
   // Increment view counter
   doc.views += 1;
+  saveManifest(pdfDocuments);
   res.json({ success: true, document: doc });
 });
 
@@ -86,7 +157,12 @@ app.get('/api/pdfs/:slug', (req: Request, res: Response) => {
  */
 app.get('/api/pdfs/raw/:slug', (req: Request, res: Response) => {
   const { slug } = req.params;
-  const doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+  let doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+
+  if (!doc) {
+    pdfDocuments = loadManifest();
+    doc = pdfDocuments.find((d) => d.slug.toLowerCase() === slug.toLowerCase());
+  }
 
   if (!doc) {
     return res.status(404).send('PDF document not found');
@@ -153,6 +229,8 @@ app.post('/api/pdfs/upload', upload.single('pdf'), (req: Request, res: Response)
       pdfDocuments.unshift(newDoc);
     }
 
+    saveManifest(pdfDocuments);
+
     res.json({ success: true, document: newDoc });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'File upload failed' });
@@ -167,7 +245,12 @@ app.patch('/api/pdfs/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const { title, slug, description } = req.body;
 
-  const doc = pdfDocuments.find((d) => d.id === id);
+  let doc = pdfDocuments.find((d) => d.id === id);
+  if (!doc) {
+    pdfDocuments = loadManifest();
+    doc = pdfDocuments.find((d) => d.id === id);
+  }
+
   if (!doc) {
     return res.status(404).json({ error: 'Document not found' });
   }
@@ -175,6 +258,8 @@ app.patch('/api/pdfs/:id', (req: Request, res: Response) => {
   if (title) doc.title = title.trim();
   if (slug) doc.slug = slug.trim().toLowerCase().replace(/[^\w-]/g, '');
   if (description !== undefined) doc.description = description.trim();
+
+  saveManifest(pdfDocuments);
 
   res.json({ success: true, document: doc });
 });
@@ -185,7 +270,12 @@ app.patch('/api/pdfs/:id', (req: Request, res: Response) => {
  */
 app.delete('/api/pdfs/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const index = pdfDocuments.findIndex((d) => d.id === id);
+  let index = pdfDocuments.findIndex((d) => d.id === id);
+
+  if (index === -1) {
+    pdfDocuments = loadManifest();
+    index = pdfDocuments.findIndex((d) => d.id === id);
+  }
 
   if (index === -1) {
     return res.status(404).json({ error: 'Document not found' });
@@ -200,6 +290,8 @@ app.delete('/api/pdfs/:id', (req: Request, res: Response) => {
       // Ignore file deletion error if file missing
     }
   }
+
+  saveManifest(pdfDocuments);
 
   res.json({ success: true, message: 'Document deleted successfully' });
 });
